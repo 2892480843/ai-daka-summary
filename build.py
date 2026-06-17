@@ -11,7 +11,9 @@ SRC = f"{BASE}/{OWNER_REPO}/issues/1"
 NDAYS = 5
 UA = "Mozilla/5.0 (compatible; daka-refresh)"
 IMGDIR = "images"
+AVDIR = "avatars"
 os.makedirs(IMGDIR, exist_ok=True)
+os.makedirs(AVDIR, exist_ok=True)
 
 def api(path):
     req = urllib.request.Request(BASE + path, headers={"User-Agent": UA, "Accept": "application/json",
@@ -47,6 +49,27 @@ def local_image(url):
         print(f"WARN image {url}: {e}")
         return url
 
+def local_avatar(login, url):
+    safe = re.sub(r'[^A-Za-z0-9_-]', '_', login or 'u')
+    rel = f"{AVDIR}/{safe}.jpg"
+    if os.path.exists(rel):
+        return rel
+    if not url:
+        return ''
+    try:
+        im = Image.open(io.BytesIO(fetch(url)))
+        if im.mode in ('RGBA', 'LA', 'P'):
+            im = im.convert('RGBA'); bg = Image.new('RGB', im.size, (255, 255, 255))
+            bg.paste(im, mask=im.split()[-1]); im = bg
+        else:
+            im = im.convert('RGB')
+        im = im.resize((96, 96))
+        im.save(rel, 'JPEG', quality=82, optimize=True)
+        return rel
+    except Exception as e:
+        print(f"WARN avatar {login}: {e}")
+        return url
+
 def clean_text(s):
     if not s:
         return ''
@@ -74,7 +97,7 @@ def parts_of(notes):
         parts.append({'t': 't', 'v': tail})
     return parts
 
-rows, seq, nimg, latest = [], 0, 0, ''
+rows, seq, nimg, latest, av_map = [], 0, 0, '', {}
 for idx in range(1, NDAYS + 1):
     try:
         data = api(f"/api/v1/{OWNER_REPO}/issues/{idx}/journals?page=1&limit=200")
@@ -84,6 +107,9 @@ for idx in range(1, NDAYS + 1):
         if not j.get('notes'):
             continue
         u = j.get('user') or {}
+        lg = u.get('login')
+        if lg not in av_map:
+            av_map[lg] = local_avatar(lg, u.get('image_url'))
         seq += 1
         parts = parts_of(j['notes'])
         nimg += sum(1 for p in parts if p['t'] == 'i')
@@ -94,6 +120,7 @@ for idx in range(1, NDAYS + 1):
                      'txt': ' '.join(p['v'] for p in parts if p['t'] == 't')})
 
 DATA_JSON = json.dumps(rows, ensure_ascii=False)
+AV_JSON = json.dumps(av_map, ensure_ascii=False)
 LATEST = latest or '—'
 
 TEMPLATE = r"""<!doctype html>
@@ -180,9 +207,11 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
 .roster td{padding:11px 6px;border-bottom:1px solid var(--line);text-align:center;vertical-align:middle}
 .roster tr:hover td{background:var(--card)}
 .rk{font-family:var(--fmono);font-size:12px;color:var(--faint)}
-.who{text-align:left}
+.who{display:flex;align-items:center;gap:9px}
 .who .nm{font-weight:500;color:var(--ink)}
-.who .id{font-family:var(--fmono);font-size:11px;color:var(--muted);margin-left:6px}
+.who .id{font-family:var(--fmono);font-size:11px;color:var(--muted)}
+.av{width:24px;height:24px;border-radius:50%;object-fit:cover;border:1px solid var(--line2);background:var(--off);flex:none}
+.avlg{width:30px;height:30px}
 .cell{display:inline-flex;width:20px;height:20px;border-radius:6px;border:1px solid var(--line2)}
 .cell.on{border:0}
 .score{font-family:var(--fmono);font-size:13px;color:var(--body);white-space:nowrap}
@@ -267,6 +296,7 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
 
 <script>
 const DATA = __DATA__;
+const AV = __AV__;
 const DI={
  1:{c:'D1',n:'案例体验',hex:'#2f9e8f'},2:{c:'D2',n:'动手准备',hex:'#3b82c4'},3:{c:'D3',n:'学会对话',hex:'#5b6bd6'},
  4:{c:'D4',n:'第一个作品',hex:'#8a5cc8'},5:{c:'D5',n:'作品展示',hex:'#c2557e'}};
@@ -277,6 +307,7 @@ prog.sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name,'zh'));prog.forEac
 const perDay={};for(let d=1;d<=5;d++)perDay[d]=prog.filter(p=>p.days.has(d)).length;
 const NP=prog.length, UNIT=prog.reduce((s,p)=>s+p.count,0), AVG=(UNIT/(NP||1));
 const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const av=(lg,big)=>{const s=AV[lg];return s?`<img class="av${big?' avlg':''}" src="${s}" alt="" loading="lazy">`:'';};
 
 document.getElementById('heroN').textContent=NP;
 
@@ -299,7 +330,7 @@ function renderRoster(){
   document.getElementById('roster').innerHTML=arr.map(p=>{
     const cells=[1,2,3,4,5].map(d=>p.days.has(d)?`<td><span class="cell on" style="background:${DI[d].hex}"></span></td>`:`<td><span class="cell"></span></td>`).join('');
     return `<tr class="person" data-login="${esc(p.login)}"><td class="l rk">${String(p.rank).padStart(2,'0')}</td>
-      <td class="who"><span class="nm">${esc(p.name)}</span><span class="id">${esc(p.login)}</span></td>${cells}
+      <td class="l"><div class="who">${av(p.login)}<span class="nm">${esc(p.name)}</span><span class="id">${esc(p.login)}</span></div></td>${cells}
       <td><span class="score"><b>${p.count}</b>/5</span></td></tr>`;}).join('');
   document.querySelectorAll('.person').forEach(tr=>tr.onclick=()=>{const lg=tr.dataset.login;q.value=lg;state.q=lg;state.day=0;syncChips();renderList();switchTab('feed');});
 }
@@ -317,7 +348,7 @@ function bodyHtml(parts){return parts.map(p=>p.t==='i'?`<img class="shot" loadin
 function renderList(){let arr=DATA.filter(c=>{if(state.day&&c.day!==state.day)return false;if(state.q){const x=state.q.toLowerCase();if(!((c.name||'').toLowerCase().includes(x)||(c.login||'').toLowerCase().includes(x)||(c.txt||'').toLowerCase().includes(x)))return false;}return true;});
   const s=state.sort;arr=[...arr].sort((a,b)=>s==='time_desc'?(b.time||'').localeCompare(a.time||''):s==='time_asc'?(a.time||'').localeCompare(b.time||''):s==='name'?a.name.localeCompare(b.name,'zh'):s==='day'?a.day-b.day||a.seq-b.seq:a.seq-b.seq);
   document.getElementById('cCount').textContent=`${arr.length} / ${TOTAL} 条`;
-  document.getElementById('cList').innerHTML=arr.length?arr.map(c=>`<div class="card"><div class="chead"><span class="tag" style="background:${DI[c.day].hex}">${DI[c.day].c}</span><span class="nm">${esc(c.name)}</span><span class="id">${esc(c.login)}</span><span class="tm">${esc(c.time||'')}</span></div><div class="cbody">${bodyHtml(c.parts)}</div></div>`).join(''):'<div class="empty">没有匹配的评论</div>';}
+  document.getElementById('cList').innerHTML=arr.length?arr.map(c=>`<div class="card"><div class="chead"><span class="tag" style="background:${DI[c.day].hex}">${DI[c.day].c}</span>${av(c.login,1)}<span class="nm">${esc(c.name)}</span><span class="id">${esc(c.login)}</span><span class="tm">${esc(c.time||'')}</span></div><div class="cbody">${bodyHtml(c.parts)}</div></div>`).join(''):'<div class="empty">没有匹配的评论</div>';}
 
 function switchTab(n){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===n));document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===n));window.scrollTo({top:0,behavior:'smooth'});}
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
@@ -330,7 +361,7 @@ renderRoster();syncChips();renderList();
 </body>
 </html>"""
 
-html = (TEMPLATE.replace('__DATA__', DATA_JSON).replace('__SRC__', SRC)
-        .replace('__LATEST__', LATEST).replace('__NIMG__', str(nimg)))
+html = (TEMPLATE.replace('__SRC__', SRC).replace('__LATEST__', LATEST).replace('__NIMG__', str(nimg))
+        .replace('__AV__', AV_JSON).replace('__DATA__', DATA_JSON))
 open('index.html', 'w', encoding='utf-8').write(html)
 print(f"built | comments={len(rows)} images={nimg} latest={LATEST} bytes={len(html)}")
