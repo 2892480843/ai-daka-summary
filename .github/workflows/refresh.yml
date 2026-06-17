@@ -20,16 +20,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Rebuild from gitlink
+      - name: Install deps
+        run: python -m pip install --quiet pillow
+      - name: Rebuild from gitlink (text + screenshots)
         run: python build.py
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- index.html; then
-            echo "no changes"
-          else
-            git add index.html
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
             git commit -m "auto refresh: $(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M')"
             git push
+          else
+            echo "no changes"
           fi

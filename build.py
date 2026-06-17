@@ -1,19 +1,53 @@
 # -*- coding: utf-8 -*-
-"""Live rebuild: fetch gitlink journals (Day1-5), emit index.html. Stdlib only (runs on Linux CI)."""
-import json, re, urllib.request
-from datetime import datetime, timezone, timedelta
+"""Live rebuild with PERMANENT local images.
+Fetch gitlink journals (Day1-5) -> download+resize each screenshot into images/<uuid>.jpg
+(only new ones) -> emit index.html referencing local relative paths. Runs on Linux CI (Pillow)."""
+import json, re, os, io, urllib.request
+from PIL import Image
 
 OWNER_REPO = "zhipu_course/AI-study-buddy-camp"
 BASE = "https://gitlink.org.cn"
 SRC = f"{BASE}/{OWNER_REPO}/issues/1"
 NDAYS = 5
 UA = "Mozilla/5.0 (compatible; daka-refresh)"
+IMGDIR = "images"
+os.makedirs(IMGDIR, exist_ok=True)
 
 def api(path):
     req = urllib.request.Request(BASE + path, headers={"User-Agent": UA, "Accept": "application/json",
-                                                        "Referer": f"{BASE}/{OWNER_REPO}/issues/1"})
+                                                       "Referer": f"{BASE}/{OWNER_REPO}/issues/1"})
     with urllib.request.urlopen(req, timeout=40) as r:
         return json.load(r)
+
+def fetch(url):
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Referer": f"{BASE}/{OWNER_REPO}/issues/1"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return r.read()
+
+def local_image(url):
+    """Return relative path images/<uuid>.jpg, downloading+resizing only if missing. Fallback: remote url."""
+    uuid = re.sub(r'[^A-Za-z0-9_-]', '_', url.rstrip('/').split('/')[-1]) or 'img'
+    rel = f"{IMGDIR}/{uuid}.jpg"
+    if os.path.exists(rel):
+        return rel
+    try:
+        data = fetch(url)
+        im = Image.open(io.BytesIO(data))
+        if im.mode in ('RGBA', 'LA', 'P'):
+            im = im.convert('RGBA')
+            bg = Image.new('RGB', im.size, (255, 255, 255))
+            bg.paste(im, mask=im.split()[-1])
+            im = bg
+        else:
+            im = im.convert('RGB')
+        w, h = im.size
+        if w > 1000:
+            im = im.resize((1000, round(h * 1000 / w)))
+        im.save(rel, 'JPEG', quality=72, optimize=True)
+        return rel
+    except Exception as e:
+        print(f"WARN image {url}: {e}")
+        return url  # remote fallback so it still shows
 
 def clean_text(s):
     if not s:
@@ -35,7 +69,7 @@ def parts_of(notes):
             parts.append({'t': 't', 'v': ct})
         u = m.group(1)
         full = (BASE + u) if u.startswith('/') else u
-        parts.append({'t': 'i', 'v': full})
+        parts.append({'t': 'i', 'v': local_image(full)})
         pos = m.end()
     tail = clean_text(notes[pos:])
     if tail:
@@ -43,6 +77,7 @@ def parts_of(notes):
     return parts
 
 rows, seq, nimg = [], 0, 0
+latest = ''
 for idx in range(1, NDAYS + 1):
     try:
         data = api(f"/api/v1/{OWNER_REPO}/issues/{idx}/journals?page=1&limit=200")
@@ -56,25 +91,26 @@ for idx in range(1, NDAYS + 1):
         seq += 1
         parts = parts_of(j['notes'])
         nimg += sum(1 for p in parts if p['t'] == 'i')
+        t = j.get('created_at') or ''
+        if t > latest:
+            latest = t
         rows.append({'seq': seq, 'day': idx,
                      'name': u.get('name') or u.get('login'),
                      'login': u.get('login'),
-                     'time': j.get('created_at'),
-                     'parts': parts,
+                     'time': t, 'parts': parts,
                      'txt': ' '.join(p['v'] for p in parts if p['t'] == 't')})
 
 DATA_JSON = json.dumps(rows, ensure_ascii=False)
-STAMP = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M')
+LATEST = latest or '—'
 
 TEMPLATE = r"""<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI 打卡汇总 · 实时</title>
+<title>AI 打卡汇总</title>
 <style>
-:root{--bg:#f5f6f8;--panel:#fff;--ink:#1f2430;--body:#33384a;--muted:#8a91a0;--line:#e7e9ee;--hover:#fafbfc;--off:#f1f3f5;
---d1:#2563eb;--d2:#16a34a;--d3:#d97706;--d4:#6b7280;--d5:#ea580c;}
+:root{--bg:#f5f6f8;--panel:#fff;--ink:#1f2430;--body:#33384a;--muted:#8a91a0;--line:#e7e9ee;--hover:#fafbfc;--off:#f1f3f5;}
 html[data-theme=dark]{--bg:#0f1115;--panel:#171a21;--ink:#e8eaf0;--body:#cdd2dd;--muted:#878f9e;--line:#262b35;--hover:#1b1f28;--off:#222734;}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",Segoe UI,Roboto,sans-serif;-webkit-font-smoothing:antialiased;line-height:1.6;transition:background .2s,color .2s}
@@ -136,7 +172,7 @@ header .meta a{color:var(--muted)}
   <div class="top">
     <header>
       <h1>AI Study Buddy Camp · 打卡汇总</h1>
-      <p class="meta">数据来源 <a href="__SRC__" target="_blank" rel="noopener">gitlink.org.cn</a> · 最后更新 <b>__STAMP__</b>（每 30 分钟自动刷新）· <span id="mPeople"></span> 人 · <span id="mTotal"></span> 条 · __NIMG__ 图</p>
+      <p class="meta">数据来源 <a href="__SRC__" target="_blank" rel="noopener">gitlink.org.cn</a> · 数据已更新至 <b>__LATEST__</b> · 每 30 分钟自动检查 · <span id="mPeople"></span> 人 · <span id="mTotal"></span> 条 · __NIMG__ 图（永久存档）</p>
     </header>
     <button class="theme" id="themeBtn">🌙 深色</button>
   </div>
@@ -162,7 +198,7 @@ header .meta a{color:var(--muted)}
     </div>
     <div class="chips" id="dayChips"></div><p class="count" id="cCount"></p><div class="clist" id="cList"></div>
   </section>
-  <p class="foot">本页由 GitHub Actions 定时从 gitlink 重新抓取并自动部署 · 最后更新 __STAMP__</p>
+  <p class="foot">页面与截图均托管于 GitHub，由 Actions 每 30 分钟自动从 gitlink 重新抓取 · 数据更新至 __LATEST__</p>
 </div>
 <script>
 const DATA = __DATA__;
@@ -206,6 +242,6 @@ renderMatrix();syncChips();renderList();
 </html>"""
 
 html = (TEMPLATE.replace('__DATA__', DATA_JSON).replace('__SRC__', SRC)
-        .replace('__STAMP__', STAMP).replace('__NIMG__', str(nimg)))
+        .replace('__LATEST__', LATEST).replace('__NIMG__', str(nimg)))
 open('index.html', 'w', encoding='utf-8').write(html)
-print(f"built index.html | comments={len(rows)} images={nimg} stamp={STAMP} bytes={len(html)}")
+print(f"built | comments={len(rows)} images_ref={nimg} latest={LATEST} bytes={len(html)}")
