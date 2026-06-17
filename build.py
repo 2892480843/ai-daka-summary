@@ -124,7 +124,7 @@ header .meta a{color:var(--muted)}
 .tabs button{border:0;background:none;font:inherit;font-size:15px;color:var(--muted);padding:10px 16px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500}
 .tabs button.active{color:var(--ink);border-bottom-color:var(--ink)}
 .view{display:none}.view.active{display:block}
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
 .stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
 .stat .k{color:var(--muted);font-size:12px;margin:0 0 6px}.stat .v{font-size:26px;font-weight:600;margin:0}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin-bottom:18px}
@@ -180,7 +180,8 @@ header .meta a{color:var(--muted)}
   <section id="progress" class="view active">
     <div class="stats">
       <div class="stat"><p class="k">参与人数</p><p class="v" id="sPeople">–</p></div>
-      <div class="stat"><p class="k">总打卡数</p><p class="v" id="sTotal">–</p></div>
+      <div class="stat"><p class="k">总评论数</p><p class="v" id="sTotal">–</p></div>
+      <div class="stat"><p class="k">打卡人次</p><p class="v" id="sUnit">–</p></div>
       <div class="stat"><p class="k">人均完成</p><p class="v" id="sAvg">–</p></div>
     </div>
     <div class="panel"><h2>每日打卡人数</h2><div class="bars" id="dayBars"></div></div>
@@ -208,8 +209,8 @@ const people={};DATA.forEach(c=>{(people[c.login]=people[c.login]||{name:c.name,
 let prog=Object.values(people).map(p=>({name:p.name,login:p.login,days:p.days,count:p.days.size}));
 prog.sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name,'zh'));prog.forEach((p,i)=>p.rank=i+1);
 const perDay={};for(let d=1;d<=5;d++)perDay[d]=prog.filter(p=>p.days.has(d)).length;
-const NP=prog.length,avg=prog.reduce((s,p)=>s+p.count,0)/(NP||1);
-mPeople.textContent=NP;mTotal.textContent=TOTAL;sPeople.textContent=NP;sTotal.textContent=TOTAL;sAvg.textContent=avg.toFixed(1)+' / 5';
+const NP=prog.length,unit=prog.reduce((s,p)=>s+p.count,0),avg=unit/(NP||1);
+mPeople.textContent=NP;mTotal.textContent=TOTAL;sPeople.textContent=NP;sTotal.textContent=TOTAL;sUnit.textContent=unit;sAvg.textContent=avg.toFixed(1)+' / 5';
 const maxd=Math.max(...Object.values(perDay),1);
 dayBars.innerHTML=[1,2,3,4,5].map(d=>{const n=perDay[d],w=Math.round(n/maxd*100);return `<div class="barrow"><span class="lab">${DI[d].label}</span><span class="track"><span class="fill" style="width:${w}%;background:${DI[d].hex}"></span></span><span class="lab" style="text-align:right">${n} 人</span></div>`;}).join('');
 let mSort='count',mDir=-1;
