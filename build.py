@@ -27,6 +27,7 @@ def fetch(url):
         return r.read()
 
 def local_image(url):
+    url = (url or '').strip().strip('"').strip()
     uuid = re.sub(r'[^A-Za-z0-9_-]', '_', url.rstrip('/').split('/')[-1]) or 'img'
     rel = f"{IMGDIR}/{uuid}.jpg"
     if os.path.exists(rel):
@@ -84,11 +85,11 @@ def clean_text(s):
 
 def parts_of(notes):
     parts, pos = [], 0
-    for m in re.finditer(r'!\[[^\]]*\]\(([^)]*)\)', notes):
+    for m in re.finditer(r'!\[[^\]]*\]\(\s*([^)\s]+)[^)]*\)', notes):
         ct = clean_text(notes[pos:m.start()])
         if ct:
             parts.append({'t': 't', 'v': ct})
-        u = m.group(1)
+        u = m.group(1).strip().strip('"').strip()
         full = (BASE + u) if u.startswith('/') else u
         parts.append({'t': 'i', 'v': local_image(full)})
         pos = m.end()
