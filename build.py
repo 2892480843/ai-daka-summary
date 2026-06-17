@@ -162,6 +162,11 @@ a{color:var(--accent)}
 h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;margin:10px 0 0;letter-spacing:-.01em}
 .sub{color:var(--muted);font-size:13px;margin:12px 0 0;font-family:var(--fmono);letter-spacing:.01em}
 .sub a{color:var(--muted);text-decoration:underline;text-underline-offset:2px}
+.live{display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-right:7px;vertical-align:1px;animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}70%{box-shadow:0 0 0 7px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+.newbar{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;z-index:50;display:none;align-items:center;gap:8px;background:var(--accent);color:#fff;font-size:14px;padding:11px 20px;border-radius:999px;cursor:pointer;box-shadow:0 10px 30px -10px rgba(0,0,0,.5);border:0;font-family:var(--fsans)}
+.newbar.show{display:inline-flex;animation:rise .3s ease}
+.newbar::before{content:"";width:8px;height:8px;border-radius:50%;background:#fff;animation:pulse 1.6s infinite}
 .toggle{flex:none;font-family:var(--fmono);font-size:12px;letter-spacing:.08em;color:var(--ink);background:none;
   border:1px solid var(--line2);border-radius:999px;padding:8px 14px;cursor:pointer;transition:.15s}
 .toggle:hover{border-color:var(--muted)}
@@ -270,7 +275,7 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
     <div>
       <div class="eyebrow">AI Study Buddy Camp · 2026</div>
       <h1>打卡汇总</h1>
-      <p class="sub">更新于 __LATEST__ · 每 30 分钟自动同步 · 源 <a href="__SRC__" target="_blank" rel="noopener">gitlink</a></p>
+      <p class="sub"><span class="live" title="自动同步中"></span>数据更新至 __LATEST__ · 每分钟自动同步 · 源 <a href="__SRC__" target="_blank" rel="noopener">gitlink</a></p>
     </div>
     <button class="toggle" id="themeBtn">DARK</button>
   </div>
@@ -304,7 +309,7 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
     <div class="chips" id="chips"></div><p class="count" id="cCount"></p><div class="clist" id="cList"></div>
   </section>
 
-  <p class="foot">页面与 __NIMG__ 张截图均永久托管于 GitHub · GitHub Actions 每 30 分钟自动从 gitlink 重新抓取部署<br>数据更新至 __LATEST__</p>
+  <p class="foot">页面与 __NIMG__ 张截图均永久托管于 GitHub · GitHub Actions 约每分钟自动从 gitlink 抓取并部署<br>数据更新至 __LATEST__</p>
 </div>
 
 <script>
@@ -378,6 +383,18 @@ applyTheme(localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme: da
 tb.onclick=()=>{const t=root.getAttribute('data-theme')==='dark'?'light':'dark';localStorage.setItem('theme',t);applyTheme(t);};
 document.addEventListener('keydown',e=>{const t=e.target;if((e.key==='Enter'||e.key===' ')&&t.matches&&t.matches('.wav,tr.person,.roster th[data-sort]')){e.preventDefault();t.click();}});
 renderRoster();syncChips();renderList();
+
+// —— 存活 + 新数据检测:每 60s 比对本页 Last-Modified,有新部署就提示刷新 ——
+(function(){
+  const bar=document.createElement('button');
+  bar.className='newbar'; bar.textContent='有新打卡内容 · 点击刷新';
+  bar.onclick=()=>location.reload();
+  document.body.appendChild(bar);
+  let base=null;
+  async function stamp(){try{const r=await fetch(location.pathname+'?_hb='+Date.now(),{method:'HEAD',cache:'no-store'});return r.headers.get('last-modified')||r.headers.get('etag')||r.headers.get('date');}catch(e){return null;}}
+  stamp().then(v=>base=v);
+  setInterval(async()=>{const v=await stamp();if(v&&base&&v!==base)bar.classList.add('show');},60000);
+})();
 </script>
 </body>
 </html>"""
