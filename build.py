@@ -128,6 +128,8 @@ TEMPLATE = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f6f6f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e0f13" media="(prefers-color-scheme: dark)">
 <title>打卡汇总 · AI Study Buddy Camp</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%235b6bd6'/%3E%3Crect%20x='8'%20y='16'%20width='4'%20height='8'%20rx='1'%20fill='white'/%3E%3Crect%20x='14'%20y='11'%20width='4'%20height='13'%20rx='1'%20fill='white'/%3E%3Crect%20x='20'%20y='7'%20width='4'%20height='17'%20rx='1'%20fill='white'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -135,7 +137,7 @@ TEMPLATE = r"""<!doctype html>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --paper:#f6f6f3; --card:#fffffe; --ink:#17181c; --body:#3c3e46; --muted:#7c7f88; --faint:#b9bcc4;
+  --paper:#f6f6f3; --card:#fffffe; --ink:#17181c; --body:#3c3e46; --muted:#6c7079; --faint:#868c98;
   --line:#e7e7e2; --line2:#dededa; --accent:#5b6bd6; --accent-soft:#eef0fb;
   --d1:#2f9e8f; --d2:#3b82c4; --d3:#5b6bd6; --d4:#8a5cc8; --d5:#c2557e;
   --fdisp:'Space Grotesk',system-ui,sans-serif;
@@ -143,7 +145,7 @@ TEMPLATE = r"""<!doctype html>
   --fsans:system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
 }
 html[data-theme=dark]{
-  --paper:#0e0f13; --card:#16181e; --ink:#eceef3; --body:#c4c7d0; --muted:#878b96; --faint:#4a4e58;
+  --paper:#0e0f13; --card:#16181e; --ink:#eceef3; --body:#c4c7d0; --muted:#878b96; --faint:#6b7079;
   --line:#23252d; --line2:#2c2f38; --accent:#8b97f0; --accent-soft:#1b1e2c;
 }
 *{box-sizing:border-box}
@@ -201,7 +203,9 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
 .m-zh{font-size:12px;color:var(--muted);margin-top:1px}
 
 /* roster */
+.roster-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .roster{width:100%;border-collapse:collapse;font-size:14px;margin-top:4px}
+.roster th[data-sort]:hover{color:var(--ink)}
 .roster th{font-family:var(--fmono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
   font-weight:400;text-align:center;padding:10px 6px;border-bottom:1px solid var(--line2);cursor:pointer;user-select:none}
 .roster th.l{text-align:left}
@@ -230,7 +234,7 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
 .controls input{flex:1;min-width:200px}
 .controls input::placeholder{color:var(--faint)}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
-.chip{font-family:var(--fmono);font-size:12px;letter-spacing:.03em;padding:6px 12px;border-radius:8px;
+.chip{appearance:none;font-family:var(--fmono);font-size:12px;letter-spacing:.03em;padding:8px 13px;border-radius:8px;
   border:1px solid var(--line2);background:none;color:var(--muted);cursor:pointer;transition:.13s}
 .chip:hover{border-color:var(--muted);color:var(--body)}
 .chip.active{color:#fff;border-color:transparent}
@@ -238,13 +242,13 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
 .clist{display:flex;flex-direction:column;gap:14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;transition:border-color .15s,transform .15s,box-shadow .15s}
 .card:hover{border-color:var(--line2);transform:translateY(-1px);box-shadow:0 6px 22px -14px rgba(0,0,0,.25)}
-.chead{display:flex;align-items:center;gap:11px;padding:13px 16px 12px}
+.chead{display:flex;align-items:center;flex-wrap:wrap;gap:8px 11px;padding:13px 16px 12px}
 .tag{font-family:var(--fmono);font-size:11px;font-weight:500;letter-spacing:.05em;color:#fff;padding:3px 8px;border-radius:6px}
 .chead .nm{font-weight:500}
 .chead .id{font-family:var(--fmono);font-size:11px;color:var(--muted)}
 .chead .tm{margin-left:auto;font-family:var(--fmono);font-size:11px;color:var(--faint)}
 .cbody{padding:0 16px 15px}
-.ptext{white-space:pre-wrap;font-size:14.5px;color:var(--body);line-height:1.7}
+.ptext{white-space:pre-wrap;overflow-wrap:break-word;word-break:break-word;font-size:14.5px;color:var(--body);line-height:1.7}
 .ptext+.shot,.shot+.ptext,.shot+.shot{margin-top:11px}
 .shot{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:9px;background:var(--paper);min-height:30px}
 .empty{color:var(--muted);text-align:center;padding:48px 0;font-family:var(--fmono);font-size:13px}
@@ -254,7 +258,8 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
   h1{font-size:30px}.wrap{padding:28px 18px 60px}
   .metrics{grid-template-columns:repeat(2,1fr);gap:18px 0}
   .m:nth-child(3){padding-left:0;border-left:0}
-  .stage-name{display:none}.roster .id{display:none}
+  .stage-name{display:none}.roster .id{display:none}.chead .id{display:none}
+  .roster{min-width:520px}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -285,10 +290,10 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
     <div class="metrics" id="metrics"></div>
 
     <div class="sec-h" style="margin-top:44px"><span class="eyebrow">Roster</span><span class="zh">每人进度 · 点姓名看 ta 的评论</span></div>
-    <table class="roster"><thead><tr>
-      <th class="l" data-sort="rank">#</th><th class="l" data-sort="name">同学</th>
-      <th data-sort="d1">D1</th><th data-sort="d2">D2</th><th data-sort="d3">D3</th><th data-sort="d4">D4</th><th data-sort="d5">D5</th>
-      <th data-sort="count">完成 ↓</th></tr></thead><tbody id="roster"></tbody></table>
+    <div class="roster-wrap"><table class="roster"><thead><tr>
+      <th class="l" data-sort="rank" tabindex="0">#</th><th class="l" data-sort="name" tabindex="0">同学</th>
+      <th data-sort="d1" tabindex="0">D1</th><th data-sort="d2" tabindex="0">D2</th><th data-sort="d3" tabindex="0">D3</th><th data-sort="d4" tabindex="0">D4</th><th data-sort="d5" tabindex="0">D5</th>
+      <th data-sort="count" tabindex="0">完成 ↓</th></tr></thead><tbody id="roster"></tbody></table></div>
   </section>
 
   <section id="feed" class="view">
@@ -329,7 +334,8 @@ document.getElementById('funnel').innerHTML=`<div class="bars">${bars}</div><div
 // member avatar wall
 document.getElementById('wallN').textContent=NP;
 document.getElementById('wall').innerHTML=prog.map(p=>{const s=AV[p.login];const ttl=`${esc(p.name)} · ${p.count}/5`;
-  return s?`<img class="wav" src="${s}" title="${ttl}" data-login="${esc(p.login)}" alt="${esc(p.name)}" loading="lazy">`:`<span class="wav wav-x" title="${ttl}" data-login="${esc(p.login)}">${esc((p.name||'?').slice(0,1))}</span>`;}).join('');
+  const a=`role="button" tabindex="0" aria-label="${esc(p.name)} 的评论"`;
+  return s?`<img class="wav" src="${s}" title="${ttl}" data-login="${esc(p.login)}" alt="${esc(p.name)}" ${a} loading="lazy">`:`<span class="wav wav-x" title="${ttl}" data-login="${esc(p.login)}" ${a}>${esc((p.name||'?').slice(0,1))}</span>`;}).join('');
 document.querySelectorAll('.wav[data-login]').forEach(el=>el.onclick=()=>{const lg=el.dataset.login;q.value=lg;state.q=lg;state.day=0;syncChips();renderList();switchTab('feed');});
 
 // metrics
@@ -343,7 +349,7 @@ function renderRoster(){
     if(mSort==='rank'){x=a.rank;y=b.rank;}else if(mSort[0]==='d'){const d=+mSort[1];x=a.days.has(d)?1:0;y=b.days.has(d)?1:0;}else{x=a.count;y=b.count;}return mDir*(x-y);});
   document.getElementById('roster').innerHTML=arr.map(p=>{
     const cells=[1,2,3,4,5].map(d=>p.days.has(d)?`<td><span class="cell on" style="background:${DI[d].hex}"></span></td>`:`<td><span class="cell"></span></td>`).join('');
-    return `<tr class="person" data-login="${esc(p.login)}"><td class="l rk">${String(p.rank).padStart(2,'0')}</td>
+    return `<tr class="person" data-login="${esc(p.login)}" tabindex="0" role="button" aria-label="查看 ${esc(p.name)} 的评论"><td class="l rk">${String(p.rank).padStart(2,'0')}</td>
       <td class="l"><div class="who">${av(p.login)}<span class="nm">${esc(p.name)}</span><span class="id">${esc(p.login)}</span></div></td>${cells}
       <td><span class="score"><b>${p.count}</b>/5</span></td></tr>`;}).join('');
   document.querySelectorAll('.person').forEach(tr=>tr.onclick=()=>{const lg=tr.dataset.login;q.value=lg;state.q=lg;state.day=0;syncChips();renderList();switchTab('feed');});
@@ -353,7 +359,7 @@ document.querySelectorAll('.roster th[data-sort]').forEach(th=>th.onclick=()=>{c
 // feed
 const state={q:'',day:0,sort:'seq'};
 const chips=[{d:0,t:'全部'}].concat([1,2,3,4,5].map(d=>({d,t:DI[d].c+' · '+perDay[d]})));
-document.getElementById('chips').innerHTML=chips.map(c=>`<span class="chip${c.d===0?' active':''}" data-day="${c.d}">${c.t}</span>`).join('');
+document.getElementById('chips').innerHTML=chips.map(c=>`<button type="button" class="chip${c.d===0?' active':''}" data-day="${c.d}">${c.t}</button>`).join('');
 function syncChips(){document.querySelectorAll('.chip').forEach(ch=>{const d=+ch.dataset.day,on=d===state.day;ch.classList.toggle('active',on);ch.style.background=on?(d?DI[d].hex:'var(--ink)'):'';ch.style.color=on?'#fff':'';});}
 document.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>{state.day=+ch.dataset.day;if(!state.day){state.q='';q.value='';}syncChips();renderList();});
 q.oninput=e=>{state.q=e.target.value.trim();renderList();};
@@ -370,6 +376,7 @@ const root=document.documentElement,tb=document.getElementById('themeBtn');
 function applyTheme(t){if(t==='dark'){root.setAttribute('data-theme','dark');tb.textContent='LIGHT';}else{root.removeAttribute('data-theme');tb.textContent='DARK';}}
 applyTheme(localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));
 tb.onclick=()=>{const t=root.getAttribute('data-theme')==='dark'?'light':'dark';localStorage.setItem('theme',t);applyTheme(t);};
+document.addEventListener('keydown',e=>{const t=e.target;if((e.key==='Enter'||e.key===' ')&&t.matches&&t.matches('.wav,tr.person,.roster th[data-sort]')){e.preventDefault();t.click();}});
 renderRoster();syncChips();renderList();
 </script>
 </body>
