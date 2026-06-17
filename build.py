@@ -152,17 +152,17 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
 /* stage funnel — signature */
 .sec-h{display:flex;align-items:baseline;gap:12px;margin:0 0 18px}
 .sec-h .zh{font-family:var(--fdisp);font-weight:500;font-size:15px;color:var(--ink)}
-.funnel{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:end;
-  padding:24px 6px 18px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-.stage{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
+.funnel{padding:22px 4px 4px;border-top:1px solid var(--line)}
+.bars{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+.bcol{height:178px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:11px}
 .stage-n{font-family:var(--fdisp);font-weight:600;font-size:30px;line-height:1;font-variant-numeric:tabular-nums}
-.stage-bar{width:100%;max-width:62px;height:128px;background:var(--line);border-radius:7px;
-  display:flex;align-items:flex-end;overflow:hidden}
-.stage-fill{width:100%;border-radius:7px 7px 0 0;min-height:3px;transition:height .8s cubic-bezier(.2,.85,.25,1)}
-.stage-code{font-family:var(--fmono);font-size:12px;font-weight:500;letter-spacing:.05em;color:var(--ink)}
-.stage-name{font-size:12px;color:var(--muted);margin-top:-4px}
+.bar{width:100%;max-width:54px;border-radius:6px 6px 2px 2px;min-height:4px;transition:height .85s cubic-bezier(.2,.85,.25,1)}
+.baseline{height:1px;background:var(--line2);margin:0 0 14px}
+.labels{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;text-align:center}
+.lcol .code{font-family:var(--fmono);font-size:12px;font-weight:500;letter-spacing:.06em}
+.lcol .name{font-size:12px;color:var(--muted);margin-top:3px}
 .funnel-cap{display:flex;justify-content:space-between;font-family:var(--fmono);font-size:11px;
-  color:var(--faint);letter-spacing:.04em;margin:8px 2px 0}
+  color:var(--faint);letter-spacing:.04em;margin:14px 2px 0}
 
 /* metrics */
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);margin:36px 0 8px}
@@ -202,8 +202,8 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
 .chip.active{color:#fff;border-color:transparent}
 .count{font-family:var(--fmono);font-size:12px;color:var(--muted);margin:0 0 14px;letter-spacing:.03em}
 .clist{display:flex;flex-direction:column;gap:14px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;transition:border-color .15s}
-.card:hover{border-color:var(--line2)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;transition:border-color .15s,transform .15s,box-shadow .15s}
+.card:hover{border-color:var(--line2);transform:translateY(-1px);box-shadow:0 6px 22px -14px rgba(0,0,0,.25)}
 .chead{display:flex;align-items:center;gap:11px;padding:13px 16px 12px}
 .tag{font-family:var(--fmono);font-size:11px;font-weight:500;letter-spacing:.05em;color:#fff;padding:3px 8px;border-radius:6px}
 .chead .nm{font-weight:500}
@@ -282,12 +282,10 @@ document.getElementById('heroN').textContent=NP;
 
 // funnel
 const MAXD=Math.max(...Object.values(perDay),1);
-document.getElementById('funnel').innerHTML=[1,2,3,4,5].map(d=>{
-  const n=perDay[d],h=Math.round(n/MAXD*100);
-  return `<div class="stage"><div class="stage-n" style="color:${n?DI[d].hex:'var(--faint)'}">${n}</div>
-   <div class="stage-bar"><div class="stage-fill" style="height:${n?h:0}%;background:${DI[d].hex}"></div></div>
-   <div class="stage-code" style="color:${DI[d].hex}">${DI[d].c}</div><div class="stage-name">${DI[d].n}</div></div>`;
-}).join('');
+const bars=[1,2,3,4,5].map(d=>{const n=perDay[d];const px=n?Math.max(8,Math.round(n/MAXD*150)):4;
+  return `<div class="bcol"><div class="stage-n" style="color:${n?DI[d].hex:'var(--faint)'}">${n}</div><div class="bar" style="height:${px}px;background:${n?DI[d].hex:'var(--line2)'}"></div></div>`;}).join('');
+const labels=[1,2,3,4,5].map(d=>`<div class="lcol"><div class="code" style="color:${DI[d].hex}">${DI[d].c}</div><div class="name">${DI[d].n}</div></div>`).join('');
+document.getElementById('funnel').innerHTML=`<div class="bars">${bars}</div><div class="baseline"></div><div class="labels">${labels}</div>`;
 
 // metrics
 const M=[['Members','参与人数',NP],['Comments','总评论数',TOTAL],['Check-ins','打卡人次',UNIT],['Avg / 5','人均完成',AVG.toFixed(1)]];
