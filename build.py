@@ -212,6 +212,10 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
 .who .id{font-family:var(--fmono);font-size:11px;color:var(--muted)}
 .av{width:24px;height:24px;border-radius:50%;object-fit:cover;border:1px solid var(--line2);background:var(--off);flex:none}
 .avlg{width:30px;height:30px}
+.wall{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 32px}
+.wav{width:40px;height:40px;border-radius:50%;object-fit:cover;border:1px solid var(--line2);background:var(--off);cursor:pointer;transition:transform .13s,box-shadow .13s}
+.wav:hover{transform:translateY(-3px) scale(1.07);box-shadow:0 6px 16px -6px rgba(0,0,0,.32)}
+.wav-x{display:inline-flex;align-items:center;justify-content:center;font-family:var(--fdisp);font-weight:600;font-size:16px;color:var(--muted)}
 .cell{display:inline-flex;width:20px;height:20px;border-radius:6px;border:1px solid var(--line2)}
 .cell.on{border:0}
 .score{font-family:var(--fmono);font-size:13px;color:var(--body);white-space:nowrap}
@@ -270,6 +274,9 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
   <section id="overview" class="view active">
     <p class="thesis"><b id="heroN">–</b> 位同学，正穿过这场 Vibe Coding 学习营的 <b>五个阶段</b>。下面是这支小队的行进轨迹。</p>
 
+    <div class="sec-h"><span class="eyebrow">Members</span><span class="zh">参与同学 · <span id="wallN">–</span> 人 · 点头像看 ta 的评论</span></div>
+    <div class="wall" id="wall"></div>
+
     <div class="sec-h"><span class="eyebrow">Stage funnel</span><span class="zh">阶段漏斗 · 每个阶段的打卡人数</span></div>
     <div class="funnel" id="funnel"></div>
     <div class="funnel-cap"><span>入营</span><span>结营 →</span></div>
@@ -317,6 +324,12 @@ const bars=[1,2,3,4,5].map(d=>{const n=perDay[d];const px=n?Math.max(8,Math.roun
   return `<div class="bcol"><div class="stage-n" style="color:${n?DI[d].hex:'var(--faint)'}">${n}</div><div class="bar" style="height:${px}px;background:${n?DI[d].hex:'var(--line2)'}"></div></div>`;}).join('');
 const labels=[1,2,3,4,5].map(d=>`<div class="lcol"><div class="code" style="color:${DI[d].hex}">${DI[d].c}</div><div class="name">${DI[d].n}</div></div>`).join('');
 document.getElementById('funnel').innerHTML=`<div class="bars">${bars}</div><div class="baseline"></div><div class="labels">${labels}</div>`;
+
+// member avatar wall
+document.getElementById('wallN').textContent=NP;
+document.getElementById('wall').innerHTML=prog.map(p=>{const s=AV[p.login];const ttl=`${esc(p.name)} · ${p.count}/5`;
+  return s?`<img class="wav" src="${s}" title="${ttl}" data-login="${esc(p.login)}" alt="${esc(p.name)}" loading="lazy">`:`<span class="wav wav-x" title="${ttl}" data-login="${esc(p.login)}">${esc((p.name||'?').slice(0,1))}</span>`;}).join('');
+document.querySelectorAll('.wav[data-login]').forEach(el=>el.onclick=()=>{const lg=el.dataset.login;q.value=lg;state.q=lg;state.day=0;syncChips();renderList();switchTab('feed');});
 
 // metrics
 const M=[['Members','参与人数',NP],['Comments','总评论数',TOTAL],['Check-ins','打卡人次',UNIT],['Avg / 5','人均完成',AVG.toFixed(1)]];
