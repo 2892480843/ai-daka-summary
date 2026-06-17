@@ -129,6 +129,7 @@ TEMPLATE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>打卡汇总 · AI Study Buddy Camp</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%235b6bd6'/%3E%3Crect%20x='8'%20y='16'%20width='4'%20height='8'%20rx='1'%20fill='white'/%3E%3Crect%20x='14'%20y='11'%20width='4'%20height='13'%20rx='1'%20fill='white'/%3E%3Crect%20x='20'%20y='7'%20width='4'%20height='17'%20rx='1'%20fill='white'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
