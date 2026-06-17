@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Live rebuild with PERMANENT local images.
-Fetch gitlink journals (Day1-5) -> download+resize each screenshot into images/<uuid>.jpg
-(only new ones) -> emit index.html referencing local relative paths. Runs on Linux CI (Pillow)."""
+"""Live rebuild with PERMANENT local images + designed front-end.
+Fetch gitlink journals (Day1-5) -> download+resize screenshots into images/<uuid>.jpg
+(only new) -> emit index.html. Stdlib + Pillow (Linux CI)."""
 import json, re, os, io, urllib.request
 from PIL import Image
 
@@ -25,7 +25,6 @@ def fetch(url):
         return r.read()
 
 def local_image(url):
-    """Return relative path images/<uuid>.jpg, downloading+resizing only if missing. Fallback: remote url."""
     uuid = re.sub(r'[^A-Za-z0-9_-]', '_', url.rstrip('/').split('/')[-1]) or 'img'
     rel = f"{IMGDIR}/{uuid}.jpg"
     if os.path.exists(rel):
@@ -36,8 +35,7 @@ def local_image(url):
         if im.mode in ('RGBA', 'LA', 'P'):
             im = im.convert('RGBA')
             bg = Image.new('RGB', im.size, (255, 255, 255))
-            bg.paste(im, mask=im.split()[-1])
-            im = bg
+            bg.paste(im, mask=im.split()[-1]); im = bg
         else:
             im = im.convert('RGB')
         w, h = im.size
@@ -47,7 +45,7 @@ def local_image(url):
         return rel
     except Exception as e:
         print(f"WARN image {url}: {e}")
-        return url  # remote fallback so it still shows
+        return url
 
 def clean_text(s):
     if not s:
@@ -76,14 +74,12 @@ def parts_of(notes):
         parts.append({'t': 't', 'v': tail})
     return parts
 
-rows, seq, nimg = [], 0, 0
-latest = ''
+rows, seq, nimg, latest = [], 0, 0, ''
 for idx in range(1, NDAYS + 1):
     try:
         data = api(f"/api/v1/{OWNER_REPO}/issues/{idx}/journals?page=1&limit=200")
     except Exception as e:
-        print(f"WARN day{idx}: {e}")
-        continue
+        print(f"WARN day{idx}: {e}"); continue
     for j in data.get('journals', []):
         if not j.get('notes'):
             continue
@@ -92,12 +88,9 @@ for idx in range(1, NDAYS + 1):
         parts = parts_of(j['notes'])
         nimg += sum(1 for p in parts if p['t'] == 'i')
         t = j.get('created_at') or ''
-        if t > latest:
-            latest = t
-        rows.append({'seq': seq, 'day': idx,
-                     'name': u.get('name') or u.get('login'),
-                     'login': u.get('login'),
-                     'time': t, 'parts': parts,
+        latest = max(latest, t)
+        rows.append({'seq': seq, 'day': idx, 'name': u.get('name') or u.get('login'),
+                     'login': u.get('login'), 'time': t, 'parts': parts,
                      'txt': ' '.join(p['v'] for p in parts if p['t'] == 't')})
 
 DATA_JSON = json.dumps(rows, ensure_ascii=False)
@@ -108,136 +101,233 @@ TEMPLATE = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI 打卡汇总</title>
+<title>打卡汇总 · AI Study Buddy Camp</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#f5f6f8;--panel:#fff;--ink:#1f2430;--body:#33384a;--muted:#8a91a0;--line:#e7e9ee;--hover:#fafbfc;--off:#f1f3f5;}
-html[data-theme=dark]{--bg:#0f1115;--panel:#171a21;--ink:#e8eaf0;--body:#cdd2dd;--muted:#878f9e;--line:#262b35;--hover:#1b1f28;--off:#222734;}
+:root{
+  --paper:#f6f6f3; --card:#fffffe; --ink:#17181c; --body:#3c3e46; --muted:#7c7f88; --faint:#b9bcc4;
+  --line:#e7e7e2; --line2:#dededa; --accent:#5b6bd6; --accent-soft:#eef0fb;
+  --d1:#2f9e8f; --d2:#3b82c4; --d3:#5b6bd6; --d4:#8a5cc8; --d5:#c2557e;
+  --fdisp:'Space Grotesk',system-ui,sans-serif;
+  --fmono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+  --fsans:system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
+}
+html[data-theme=dark]{
+  --paper:#0e0f13; --card:#16181e; --ink:#eceef3; --body:#c4c7d0; --muted:#878b96; --faint:#4a4e58;
+  --line:#23252d; --line2:#2c2f38; --accent:#8b97f0; --accent-soft:#1b1e2c;
+}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",Segoe UI,Roboto,sans-serif;-webkit-font-smoothing:antialiased;line-height:1.6;transition:background .2s,color .2s}
-.wrap{max-width:1060px;margin:0 auto;padding:28px 20px 64px}
-.top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
-header h1{font-size:24px;font-weight:600;margin:0 0 6px}
-header .meta{color:var(--muted);font-size:13px;margin:0}
-header .meta a{color:var(--muted)}
-.theme{flex:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit;font-size:13px;padding:8px 14px;border-radius:999px;cursor:pointer}
-.tabs{display:flex;gap:6px;margin:22px 0 18px;border-bottom:1px solid var(--line)}
-.tabs button{border:0;background:none;font:inherit;font-size:15px;color:var(--muted);padding:10px 16px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500}
-.tabs button.active{color:var(--ink);border-bottom-color:var(--ink)}
-.view{display:none}.view.active{display:block}
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
-.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
-.stat .k{color:var(--muted);font-size:12px;margin:0 0 6px}.stat .v{font-size:26px;font-weight:600;margin:0}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin-bottom:18px}
-.panel h2{font-size:14px;font-weight:600;color:var(--muted);margin:0 0 14px}
-.bars{display:flex;flex-direction:column;gap:10px}
-.barrow{display:grid;grid-template-columns:54px 1fr 46px;align-items:center;gap:10px;font-size:13px}
-.barrow .lab{color:var(--muted)}
-.track{display:block;height:14px;background:var(--bg);border-radius:8px;overflow:hidden}
-.fill{display:block;height:100%;border-radius:8px;transition:width .6s cubic-bezier(.2,.8,.2,1)}
-.matrix{width:100%;border-collapse:separate;border-spacing:0;font-size:14px}
-.matrix th,.matrix td{padding:10px 8px;text-align:center;border-bottom:1px solid var(--line)}
-.matrix th{position:sticky;top:0;background:var(--panel);color:var(--muted);font-weight:600;font-size:12px;cursor:pointer}
-.matrix th.l,.matrix td.l{text-align:left}
-.matrix tr.person{cursor:pointer}.matrix tr.person:hover td{background:var(--hover)}
-.matrix .id{color:var(--muted);font-size:12px}
-.dot{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;font-weight:700}
-.dot.on{color:#fff}.dot.off{color:var(--muted);background:var(--off)}
-.pbar{display:flex;align-items:center;gap:8px}
-.pbar .pt{display:block;flex:1;height:10px;background:var(--bg);border-radius:6px;overflow:hidden;min-width:60px}
-.pbar .pf{display:block;height:100%;background:#22c55e;border-radius:6px}
-.pbar .pn{font-variant-numeric:tabular-nums;font-weight:600;font-size:13px;min-width:34px;text-align:right}
-.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
-.controls input,.controls select{font:inherit;font-size:14px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);outline:none}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--fsans);line-height:1.65;
+  -webkit-font-smoothing:antialiased;transition:background .25s,color .25s}
+.wrap{max-width:980px;margin:0 auto;padding:40px 24px 80px}
+.eyebrow{font-family:var(--fmono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
+
+/* header */
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:8px}
+h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;margin:10px 0 0;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:13px;margin:12px 0 0;font-family:var(--fmono);letter-spacing:.01em}
+.sub a{color:var(--muted);text-decoration:underline;text-underline-offset:2px}
+.toggle{flex:none;font-family:var(--fmono);font-size:12px;letter-spacing:.08em;color:var(--ink);background:none;
+  border:1px solid var(--line2);border-radius:999px;padding:8px 14px;cursor:pointer;transition:.15s}
+.toggle:hover{border-color:var(--muted)}
+
+/* tabs */
+.tabs{display:flex;gap:28px;margin:34px 0 28px;border-bottom:1px solid var(--line)}
+.tabs button{appearance:none;border:0;background:none;font-family:var(--fdisp);font-size:15px;font-weight:500;
+  color:var(--faint);padding:0 0 12px;margin-bottom:-1px;cursor:pointer;border-bottom:2px solid transparent;transition:.15s}
+.tabs button:hover{color:var(--body)}
+.tabs button.active{color:var(--ink);border-bottom-color:var(--accent)}
+.view{display:none}.view.active{display:block;animation:rise .4s ease}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* thesis */
+.thesis{font-size:19px;line-height:1.6;color:var(--body);max-width:46ch;margin:4px 0 30px}
+.thesis b{color:var(--ink);font-weight:500}
+
+/* stage funnel — signature */
+.sec-h{display:flex;align-items:baseline;gap:12px;margin:0 0 18px}
+.sec-h .zh{font-family:var(--fdisp);font-weight:500;font-size:15px;color:var(--ink)}
+.funnel{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:end;
+  padding:24px 6px 18px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.stage{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
+.stage-n{font-family:var(--fdisp);font-weight:600;font-size:30px;line-height:1;font-variant-numeric:tabular-nums}
+.stage-bar{width:100%;max-width:62px;height:128px;background:var(--line);border-radius:7px;
+  display:flex;align-items:flex-end;overflow:hidden}
+.stage-fill{width:100%;border-radius:7px 7px 0 0;min-height:3px;transition:height .8s cubic-bezier(.2,.85,.25,1)}
+.stage-code{font-family:var(--fmono);font-size:12px;font-weight:500;letter-spacing:.05em;color:var(--ink)}
+.stage-name{font-size:12px;color:var(--muted);margin-top:-4px}
+.funnel-cap{display:flex;justify-content:space-between;font-family:var(--fmono);font-size:11px;
+  color:var(--faint);letter-spacing:.04em;margin:8px 2px 0}
+
+/* metrics */
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);margin:36px 0 8px}
+.m{padding:4px 18px;border-left:1px solid var(--line)}
+.m:first-child{padding-left:0;border-left:0}
+.m-k{font-family:var(--fmono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.m-v{font-family:var(--fdisp);font-weight:600;font-size:34px;line-height:1.1;margin-top:6px;font-variant-numeric:tabular-nums}
+.m-zh{font-size:12px;color:var(--muted);margin-top:1px}
+
+/* roster */
+.roster{width:100%;border-collapse:collapse;font-size:14px;margin-top:4px}
+.roster th{font-family:var(--fmono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  font-weight:400;text-align:center;padding:10px 6px;border-bottom:1px solid var(--line2);cursor:pointer;user-select:none}
+.roster th.l{text-align:left}
+.roster td{padding:11px 6px;border-bottom:1px solid var(--line);text-align:center;vertical-align:middle}
+.roster tr:hover td{background:var(--card)}
+.rk{font-family:var(--fmono);font-size:12px;color:var(--faint)}
+.who{text-align:left}
+.who .nm{font-weight:500;color:var(--ink)}
+.who .id{font-family:var(--fmono);font-size:11px;color:var(--muted);margin-left:6px}
+.cell{display:inline-flex;width:20px;height:20px;border-radius:6px;border:1px solid var(--line2)}
+.cell.on{border:0}
+.score{font-family:var(--fmono);font-size:13px;color:var(--body);white-space:nowrap}
+.score b{font-family:var(--fdisp);font-weight:600;color:var(--ink);font-size:15px}
+.person{cursor:pointer}
+
+/* comments */
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+.controls input,.controls select{font:inherit;font-size:14px;padding:10px 13px;border:1px solid var(--line2);
+  border-radius:10px;background:var(--card);color:var(--ink);outline:none}
 .controls input{flex:1;min-width:200px}
-.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
-.chip{font-size:13px;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--panel);cursor:pointer;color:var(--muted);font-weight:500}
+.controls input::placeholder{color:var(--faint)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.chip{font-family:var(--fmono);font-size:12px;letter-spacing:.03em;padding:6px 12px;border-radius:8px;
+  border:1px solid var(--line2);background:none;color:var(--muted);cursor:pointer;transition:.13s}
+.chip:hover{border-color:var(--muted);color:var(--body)}
 .chip.active{color:#fff;border-color:transparent}
-.count{color:var(--muted);font-size:13px;margin:0 0 12px}
-.clist{display:flex;flex-direction:column;gap:12px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-.card .chead{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
-.badge{font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;color:#fff;white-space:nowrap}
-.card .who{font-weight:600}.card .uid{color:var(--muted);font-size:12px}.card .when{margin-left:auto;color:var(--muted);font-size:12px}
-.card .body{padding:13px 16px}
-.ptext{white-space:pre-wrap;font-size:14.5px;color:var(--body)}
-.ptext+.shot,.shot+.ptext,.shot+.shot{margin-top:10px}
-.shot{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:10px;background:var(--off);min-height:30px}
-.empty{color:var(--muted);text-align:center;padding:40px 0;font-size:14px}
-.foot{color:var(--muted);font-size:12px;margin-top:24px;text-align:center}
-@media(max-width:640px){.stats{grid-template-columns:1fr}.matrix .id{display:none}}
+.count{font-family:var(--fmono);font-size:12px;color:var(--muted);margin:0 0 14px;letter-spacing:.03em}
+.clist{display:flex;flex-direction:column;gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;transition:border-color .15s}
+.card:hover{border-color:var(--line2)}
+.chead{display:flex;align-items:center;gap:11px;padding:13px 16px 12px}
+.tag{font-family:var(--fmono);font-size:11px;font-weight:500;letter-spacing:.05em;color:#fff;padding:3px 8px;border-radius:6px}
+.chead .nm{font-weight:500}
+.chead .id{font-family:var(--fmono);font-size:11px;color:var(--muted)}
+.chead .tm{margin-left:auto;font-family:var(--fmono);font-size:11px;color:var(--faint)}
+.cbody{padding:0 16px 15px}
+.ptext{white-space:pre-wrap;font-size:14.5px;color:var(--body);line-height:1.7}
+.ptext+.shot,.shot+.ptext,.shot+.shot{margin-top:11px}
+.shot{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:9px;background:var(--paper);min-height:30px}
+.empty{color:var(--muted);text-align:center;padding:48px 0;font-family:var(--fmono);font-size:13px}
+.foot{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);font-family:var(--fmono);
+  font-size:11px;color:var(--faint);letter-spacing:.03em;text-align:center;line-height:1.8}
+@media(max-width:680px){
+  h1{font-size:30px}.wrap{padding:28px 18px 60px}
+  .metrics{grid-template-columns:repeat(2,1fr);gap:18px 0}
+  .m:nth-child(3){padding-left:0;border-left:0}
+  .stage-name{display:none}.roster .id{display:none}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="top">
-    <header>
-      <h1>AI Study Buddy Camp · 打卡汇总</h1>
-      <p class="meta">数据来源 <a href="__SRC__" target="_blank" rel="noopener">gitlink.org.cn</a> · 数据已更新至 <b>__LATEST__</b> · 每 30 分钟自动检查 · <span id="mPeople"></span> 人 · <span id="mTotal"></span> 条 · __NIMG__ 图（永久存档）</p>
-    </header>
-    <button class="theme" id="themeBtn">🌙 深色</button>
+  <div class="head">
+    <div>
+      <div class="eyebrow">AI Study Buddy Camp · 2026</div>
+      <h1>打卡汇总</h1>
+      <p class="sub">更新于 __LATEST__ · 每 30 分钟自动同步 · 源 <a href="__SRC__" target="_blank" rel="noopener">gitlink</a></p>
+    </div>
+    <button class="toggle" id="themeBtn">DARK</button>
   </div>
-  <nav class="tabs"><button data-tab="progress" class="active">进度总览</button><button data-tab="comments">评论明细</button></nav>
-  <section id="progress" class="view active">
-    <div class="stats">
-      <div class="stat"><p class="k">参与人数</p><p class="v" id="sPeople">–</p></div>
-      <div class="stat"><p class="k">总评论数</p><p class="v" id="sTotal">–</p></div>
-      <div class="stat"><p class="k">打卡人次</p><p class="v" id="sUnit">–</p></div>
-      <div class="stat"><p class="k">人均完成</p><p class="v" id="sAvg">–</p></div>
-    </div>
-    <div class="panel"><h2>每日打卡人数</h2><div class="bars" id="dayBars"></div></div>
-    <div class="panel"><h2>每人进度（点姓名查看 ta 的评论）</h2>
-      <table class="matrix"><thead><tr>
-        <th class="l" data-sort="rank">#</th><th class="l" data-sort="name">名称</th>
-        <th data-sort="d1">D1</th><th data-sort="d2">D2</th><th data-sort="d3">D3</th><th data-sort="d4">D4</th><th data-sort="d5">D5</th>
-        <th data-sort="count">完成进度 ▾</th></tr></thead><tbody id="matrixBody"></tbody></table>
-    </div>
+
+  <nav class="tabs"><button data-tab="overview" class="active">进度总览</button><button data-tab="feed">评论明细</button></nav>
+
+  <section id="overview" class="view active">
+    <p class="thesis"><b id="heroN">–</b> 位同学，正穿过这场 Vibe Coding 学习营的 <b>五个阶段</b>。下面是这支小队的行进轨迹。</p>
+
+    <div class="sec-h"><span class="eyebrow">Stage funnel</span><span class="zh">阶段漏斗 · 每个阶段的打卡人数</span></div>
+    <div class="funnel" id="funnel"></div>
+    <div class="funnel-cap"><span>入营</span><span>结营 →</span></div>
+
+    <div class="metrics" id="metrics"></div>
+
+    <div class="sec-h" style="margin-top:44px"><span class="eyebrow">Roster</span><span class="zh">每人进度 · 点姓名看 ta 的评论</span></div>
+    <table class="roster"><thead><tr>
+      <th class="l" data-sort="rank">#</th><th class="l" data-sort="name">同学</th>
+      <th data-sort="d1">D1</th><th data-sort="d2">D2</th><th data-sort="d3">D3</th><th data-sort="d4">D4</th><th data-sort="d5">D5</th>
+      <th data-sort="count">完成 ↓</th></tr></thead><tbody id="roster"></tbody></table>
   </section>
-  <section id="comments" class="view">
+
+  <section id="feed" class="view">
     <div class="controls">
-      <input id="q" type="search" placeholder="搜索名称 / ID / 评论内容…">
-      <select id="sort"><option value="seq">默认顺序</option><option value="time_desc">时间（新→旧）</option><option value="time_asc">时间（旧→新）</option><option value="name">按名称</option><option value="day">按任务</option></select>
+      <input id="q" type="search" placeholder="搜索同学 / ID / 评论内容…">
+      <select id="sort"><option value="seq">默认顺序</option><option value="time_desc">时间 · 新→旧</option><option value="time_asc">时间 · 旧→新</option><option value="name">按姓名</option><option value="day">按阶段</option></select>
     </div>
-    <div class="chips" id="dayChips"></div><p class="count" id="cCount"></p><div class="clist" id="cList"></div>
+    <div class="chips" id="chips"></div><p class="count" id="cCount"></p><div class="clist" id="cList"></div>
   </section>
-  <p class="foot">页面与截图均托管于 GitHub，由 Actions 每 30 分钟自动从 gitlink 重新抓取 · 数据更新至 __LATEST__</p>
+
+  <p class="foot">页面与 __NIMG__ 张截图均永久托管于 GitHub · GitHub Actions 每 30 分钟自动从 gitlink 重新抓取部署<br>数据更新至 __LATEST__</p>
 </div>
+
 <script>
 const DATA = __DATA__;
-const DI={1:{label:'Day 1',hex:'#2563eb'},2:{label:'Day 2',hex:'#16a34a'},3:{label:'Day 3',hex:'#d97706'},4:{label:'Day 4',hex:'#6b7280'},5:{label:'Day 5',hex:'#ea580c'}};
+const DI={
+ 1:{c:'D1',n:'案例体验',hex:'#2f9e8f'},2:{c:'D2',n:'动手准备',hex:'#3b82c4'},3:{c:'D3',n:'学会对话',hex:'#5b6bd6'},
+ 4:{c:'D4',n:'第一个作品',hex:'#8a5cc8'},5:{c:'D5',n:'作品展示',hex:'#c2557e'}};
 const TOTAL=DATA.length;
 const people={};DATA.forEach(c=>{(people[c.login]=people[c.login]||{name:c.name,login:c.login,days:new Set()}).days.add(c.day);});
 let prog=Object.values(people).map(p=>({name:p.name,login:p.login,days:p.days,count:p.days.size}));
 prog.sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name,'zh'));prog.forEach((p,i)=>p.rank=i+1);
 const perDay={};for(let d=1;d<=5;d++)perDay[d]=prog.filter(p=>p.days.has(d)).length;
-const NP=prog.length,unit=prog.reduce((s,p)=>s+p.count,0),avg=unit/(NP||1);
-mPeople.textContent=NP;mTotal.textContent=TOTAL;sPeople.textContent=NP;sTotal.textContent=TOTAL;sUnit.textContent=unit;sAvg.textContent=avg.toFixed(1)+' / 5';
-const maxd=Math.max(...Object.values(perDay),1);
-dayBars.innerHTML=[1,2,3,4,5].map(d=>{const n=perDay[d],w=Math.round(n/maxd*100);return `<div class="barrow"><span class="lab">${DI[d].label}</span><span class="track"><span class="fill" style="width:${w}%;background:${DI[d].hex}"></span></span><span class="lab" style="text-align:right">${n} 人</span></div>`;}).join('');
+const NP=prog.length, UNIT=prog.reduce((s,p)=>s+p.count,0), AVG=(UNIT/(NP||1));
+const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+document.getElementById('heroN').textContent=NP;
+
+// funnel
+const MAXD=Math.max(...Object.values(perDay),1);
+document.getElementById('funnel').innerHTML=[1,2,3,4,5].map(d=>{
+  const n=perDay[d],h=Math.round(n/MAXD*100);
+  return `<div class="stage"><div class="stage-n" style="color:${n?DI[d].hex:'var(--faint)'}">${n}</div>
+   <div class="stage-bar"><div class="stage-fill" style="height:${n?h:0}%;background:${DI[d].hex}"></div></div>
+   <div class="stage-code" style="color:${DI[d].hex}">${DI[d].c}</div><div class="stage-name">${DI[d].n}</div></div>`;
+}).join('');
+
+// metrics
+const M=[['Members','参与人数',NP],['Comments','总评论数',TOTAL],['Check-ins','打卡人次',UNIT],['Avg / 5','人均完成',AVG.toFixed(1)]];
+document.getElementById('metrics').innerHTML=M.map(m=>`<div class="m"><div class="m-k">${m[0]}</div><div class="m-v">${m[2]}</div><div class="m-zh">${m[1]}</div></div>`).join('');
+
+// roster
 let mSort='count',mDir=-1;
-function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function renderMatrix(){const arr=[...prog].sort((a,b)=>{let x,y;if(mSort==='name')return mDir*a.name.localeCompare(b.name,'zh');if(mSort==='rank'){x=a.rank;y=b.rank;}else if(mSort[0]==='d'){const d=+mSort[1];x=a.days.has(d)?1:0;y=b.days.has(d)?1:0;}else{x=a.count;y=b.count;}return mDir*(x-y);});
-matrixBody.innerHTML=arr.map(p=>{const cells=[1,2,3,4,5].map(d=>p.days.has(d)?`<td><span class="dot on" style="background:${DI[d].hex}">✓</span></td>`:`<td><span class="dot off">·</span></td>`).join('');const w=Math.round(p.count/5*100);return `<tr class="person" data-login="${esc(p.login)}"><td class="l">${p.rank}</td><td class="l"><b>${esc(p.name)}</b> <span class="id">${esc(p.login)}</span></td>${cells}<td><div class="pbar"><span class="pt"><span class="pf" style="width:${w}%"></span></span><span class="pn">${p.count}/5</span></div></td></tr>`;}).join('');
-document.querySelectorAll('tr.person').forEach(tr=>tr.onclick=()=>{const lg=tr.dataset.login;q.value=lg;state.q=lg;state.day=0;syncChips();renderList();switchTab('comments');});}
-document.querySelectorAll('.matrix th[data-sort]').forEach(th=>th.onclick=()=>{const k=th.dataset.sort;if(mSort===k)mDir*=-1;else{mSort=k;mDir=(k==='name'||k==='rank')?1:-1;}renderMatrix();});
+function renderRoster(){
+  const arr=[...prog].sort((a,b)=>{let x,y;if(mSort==='name')return mDir*a.name.localeCompare(b.name,'zh');
+    if(mSort==='rank'){x=a.rank;y=b.rank;}else if(mSort[0]==='d'){const d=+mSort[1];x=a.days.has(d)?1:0;y=b.days.has(d)?1:0;}else{x=a.count;y=b.count;}return mDir*(x-y);});
+  document.getElementById('roster').innerHTML=arr.map(p=>{
+    const cells=[1,2,3,4,5].map(d=>p.days.has(d)?`<td><span class="cell on" style="background:${DI[d].hex}"></span></td>`:`<td><span class="cell"></span></td>`).join('');
+    return `<tr class="person" data-login="${esc(p.login)}"><td class="l rk">${String(p.rank).padStart(2,'0')}</td>
+      <td class="who"><span class="nm">${esc(p.name)}</span><span class="id">${esc(p.login)}</span></td>${cells}
+      <td><span class="score"><b>${p.count}</b>/5</span></td></tr>`;}).join('');
+  document.querySelectorAll('.person').forEach(tr=>tr.onclick=()=>{const lg=tr.dataset.login;q.value=lg;state.q=lg;state.day=0;syncChips();renderList();switchTab('feed');});
+}
+document.querySelectorAll('.roster th[data-sort]').forEach(th=>th.onclick=()=>{const k=th.dataset.sort;if(mSort===k)mDir*=-1;else{mSort=k;mDir=(k==='name'||k==='rank')?1:-1;}renderRoster();});
+
+// feed
 const state={q:'',day:0,sort:'seq'};
-const chips=[{d:0,t:'全部'}].concat([1,2,3,4,5].map(d=>({d,t:DI[d].label+' ('+perDay[d]+')'})));
-dayChips.innerHTML=chips.map(c=>`<span class="chip${c.d===0?' active':''}" data-day="${c.d}">${c.t}</span>`).join('');
+const chips=[{d:0,t:'全部'}].concat([1,2,3,4,5].map(d=>({d,t:DI[d].c+' · '+perDay[d]})));
+document.getElementById('chips').innerHTML=chips.map(c=>`<span class="chip${c.d===0?' active':''}" data-day="${c.d}">${c.t}</span>`).join('');
 function syncChips(){document.querySelectorAll('.chip').forEach(ch=>{const d=+ch.dataset.day,on=d===state.day;ch.classList.toggle('active',on);ch.style.background=on?(d?DI[d].hex:'var(--ink)'):'';ch.style.color=on?'#fff':'';});}
 document.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>{state.day=+ch.dataset.day;syncChips();renderList();});
 q.oninput=e=>{state.q=e.target.value.trim();renderList();};
 document.getElementById('sort').onchange=e=>{state.sort=e.target.value;renderList();};
 function bodyHtml(parts){return parts.map(p=>p.t==='i'?`<img class="shot" loading="lazy" src="${p.v}" alt="截图" referrerpolicy="no-referrer">`:`<div class="ptext">${esc(p.v)}</div>`).join('');}
 function renderList(){let arr=DATA.filter(c=>{if(state.day&&c.day!==state.day)return false;if(state.q){const x=state.q.toLowerCase();if(!((c.name||'').toLowerCase().includes(x)||(c.login||'').toLowerCase().includes(x)||(c.txt||'').toLowerCase().includes(x)))return false;}return true;});
-const s=state.sort;arr=[...arr].sort((a,b)=>s==='time_desc'?(b.time||'').localeCompare(a.time||''):s==='time_asc'?(a.time||'').localeCompare(b.time||''):s==='name'?a.name.localeCompare(b.name,'zh'):s==='day'?a.day-b.day||a.seq-b.seq:a.seq-b.seq);
-cCount.textContent=`显示 ${arr.length} / ${TOTAL} 条`;
-cList.innerHTML=arr.length?arr.map(c=>`<div class="card"><div class="chead"><span class="badge" style="background:${DI[c.day].hex}">${DI[c.day].label}</span><span class="who">${esc(c.name)}</span><span class="uid">${esc(c.login)}</span><span class="when">${esc(c.time||'')}</span></div><div class="body">${bodyHtml(c.parts)}</div></div>`).join(''):'<div class="empty">没有匹配的评论</div>';}
+  const s=state.sort;arr=[...arr].sort((a,b)=>s==='time_desc'?(b.time||'').localeCompare(a.time||''):s==='time_asc'?(a.time||'').localeCompare(b.time||''):s==='name'?a.name.localeCompare(b.name,'zh'):s==='day'?a.day-b.day||a.seq-b.seq:a.seq-b.seq);
+  document.getElementById('cCount').textContent=`${arr.length} / ${TOTAL} 条`;
+  document.getElementById('cList').innerHTML=arr.length?arr.map(c=>`<div class="card"><div class="chead"><span class="tag" style="background:${DI[c.day].hex}">${DI[c.day].c}</span><span class="nm">${esc(c.name)}</span><span class="id">${esc(c.login)}</span><span class="tm">${esc(c.time||'')}</span></div><div class="cbody">${bodyHtml(c.parts)}</div></div>`).join(''):'<div class="empty">没有匹配的评论</div>';}
+
 function switchTab(n){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===n));document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===n));window.scrollTo({top:0,behavior:'smooth'});}
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
 const root=document.documentElement,tb=document.getElementById('themeBtn');
-function applyTheme(t){if(t==='dark'){root.setAttribute('data-theme','dark');tb.textContent='☀ 浅色';}else{root.removeAttribute('data-theme');tb.textContent='🌙 深色';}}
+function applyTheme(t){if(t==='dark'){root.setAttribute('data-theme','dark');tb.textContent='LIGHT';}else{root.removeAttribute('data-theme');tb.textContent='DARK';}}
 applyTheme(localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));
 tb.onclick=()=>{const t=root.getAttribute('data-theme')==='dark'?'light':'dark';localStorage.setItem('theme',t);applyTheme(t);};
-renderMatrix();syncChips();renderList();
+renderRoster();syncChips();renderList();
 </script>
 </body>
 </html>"""
@@ -245,4 +335,4 @@ renderMatrix();syncChips();renderList();
 html = (TEMPLATE.replace('__DATA__', DATA_JSON).replace('__SRC__', SRC)
         .replace('__LATEST__', LATEST).replace('__NIMG__', str(nimg)))
 open('index.html', 'w', encoding='utf-8').write(html)
-print(f"built | comments={len(rows)} images_ref={nimg} latest={LATEST} bytes={len(html)}")
+print(f"built | comments={len(rows)} images={nimg} latest={LATEST} bytes={len(html)}")
