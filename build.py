@@ -310,7 +310,7 @@ const state={q:'',day:0,sort:'seq'};
 const chips=[{d:0,t:'全部'}].concat([1,2,3,4,5].map(d=>({d,t:DI[d].c+' · '+perDay[d]})));
 document.getElementById('chips').innerHTML=chips.map(c=>`<span class="chip${c.d===0?' active':''}" data-day="${c.d}">${c.t}</span>`).join('');
 function syncChips(){document.querySelectorAll('.chip').forEach(ch=>{const d=+ch.dataset.day,on=d===state.day;ch.classList.toggle('active',on);ch.style.background=on?(d?DI[d].hex:'var(--ink)'):'';ch.style.color=on?'#fff':'';});}
-document.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>{state.day=+ch.dataset.day;syncChips();renderList();});
+document.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>{state.day=+ch.dataset.day;if(!state.day){state.q='';q.value='';}syncChips();renderList();});
 q.oninput=e=>{state.q=e.target.value.trim();renderList();};
 document.getElementById('sort').onchange=e=>{state.sort=e.target.value;renderList();};
 function bodyHtml(parts){return parts.map(p=>p.t==='i'?`<img class="shot" loading="lazy" src="${p.v}" alt="截图" referrerpolicy="no-referrer">`:`<div class="ptext">${esc(p.v)}</div>`).join('');}
