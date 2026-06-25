@@ -2,8 +2,12 @@
 """Live rebuild with PERMANENT local images + designed front-end.
 Fetch gitlink journals (Day1-5) -> download+resize screenshots into images/<uuid>.jpg
 (only new) -> emit index.html. Stdlib + Pillow (Linux CI)."""
-import json, re, os, io, urllib.request
-from PIL import Image
+import json, re, os, io, urllib.request, subprocess, shutil
+try:
+    from PIL import Image
+    HAVE_PIL = True
+except Exception:
+    HAVE_PIL = False
 
 OWNER_REPO = "zhipu_course/AI-study-buddy-camp"
 BASE = "https://gitlink.org.cn"
@@ -12,8 +16,13 @@ NDAYS = 5
 UA = "Mozilla/5.0 (compatible; daka-refresh)"
 IMGDIR = "images"
 AVDIR = "avatars"
+FILEDIR = "files"
 os.makedirs(IMGDIR, exist_ok=True)
 os.makedirs(AVDIR, exist_ok=True)
+os.makedirs(FILEDIR, exist_ok=True)
+VIDEO_EXTS = {'mp4', 'mov', 'webm', 'avi', 'mkv'}
+OFFICE_EXTS = {'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls'}
+SOFFICE = shutil.which('soffice') or shutil.which('libreoffice')
 
 def api(path):
     req = urllib.request.Request(BASE + path, headers={"User-Agent": UA, "Accept": "application/json",
@@ -34,6 +43,10 @@ def local_image(url):
         return rel
     try:
         data = fetch(url)
+        if not HAVE_PIL:
+            with open(rel, 'wb') as f:
+                f.write(data)
+            return rel
         im = Image.open(io.BytesIO(data))
         if im.mode in ('RGBA', 'LA', 'P'):
             im = im.convert('RGBA')
@@ -58,7 +71,12 @@ def local_avatar(login, url):
     if not url:
         return ''
     try:
-        im = Image.open(io.BytesIO(fetch(url)))
+        data = fetch(url)
+        if not HAVE_PIL:
+            with open(rel, 'wb') as f:
+                f.write(data)
+            return rel
+        im = Image.open(io.BytesIO(data))
         if im.mode in ('RGBA', 'LA', 'P'):
             im = im.convert('RGBA'); bg = Image.new('RGB', im.size, (255, 255, 255))
             bg.paste(im, mask=im.split()[-1]); im = bg
@@ -70,6 +88,35 @@ def local_avatar(login, url):
     except Exception as e:
         print(f"WARN avatar {login}: {e}")
         return url
+
+def local_file(url, aid, ext):
+    """Download a (non-video) attachment locally so it can be previewed in-browser."""
+    rel = f"{FILEDIR}/{aid}.{ext}"
+    if os.path.exists(rel):
+        return rel
+    try:
+        data = fetch(url)
+        with open(rel, 'wb') as f:
+            f.write(data)
+        return rel
+    except Exception as e:
+        print(f"WARN file {url}: {e}")
+        return url
+
+def office_to_pdf(paths):
+    """Convert office docs -> PDF via LibreOffice (when available) for native in-browser preview.
+    Already-converted (committed) PDFs are reused, so the CI runner needs no LibreOffice."""
+    todo = [p for p in paths if p.startswith(FILEDIR) and os.path.exists(p)
+            and not os.path.exists(os.path.splitext(p)[0] + '.pdf')]
+    if not SOFFICE or not todo:
+        return
+    for i in range(0, len(todo), 10):
+        try:
+            subprocess.run([SOFFICE, '--headless', '-env:UserInstallation=file:///tmp/lo_daka',
+                            '--convert-to', 'pdf', '--outdir', FILEDIR] + todo[i:i + 10],
+                           timeout=300, capture_output=True)
+        except Exception as e:
+            print(f"WARN convert: {e}")
 
 def clean_text(s):
     if not s:
@@ -98,7 +145,8 @@ def parts_of(notes):
         parts.append({'t': 't', 'v': tail})
     return parts
 
-rows, seq, nimg, latest, av_map = [], 0, 0, '', {}
+rows, seq, nimg, nfile, latest, av_map = [], 0, 0, 0, '', {}
+office_pending = []
 for idx in range(1, NDAYS + 1):
     try:
         data = api(f"/api/v1/{OWNER_REPO}/issues/{idx}/journals?page=1&limit=200")
@@ -113,12 +161,39 @@ for idx in range(1, NDAYS + 1):
             av_map[lg] = local_avatar(lg, u.get('image_url'))
         seq += 1
         parts = parts_of(j['notes'])
+        # attachments: host images locally (small, lightbox-able), link docs/videos to gitlink
+        inline_ids = set(re.findall(r'attachments/([0-9a-fA-F-]{36})', j['notes']))
+        files = []
+        for a in (j.get('attachments') or []):
+            ct = (a.get('content_type') or ''); aid = a.get('id'); aurl = a.get('url') or ''
+            if aurl.startswith('/'):
+                aurl = BASE + aurl
+            if ct.startswith('image/'):
+                if aid not in inline_ids:
+                    parts.append({'t': 'i', 'v': local_image(aurl)})
+            else:
+                ttl = a.get('title') or 'file'
+                ext = ttl.rsplit('.', 1)[-1].lower() if '.' in ttl else 'file'
+                fu = aurl if ext in VIDEO_EXTS else local_file(aurl, aid, ext)
+                fobj = {'n': ttl, 's': a.get('filesize') or '', 'u': fu, 'x': ext}
+                if ext in OFFICE_EXTS and fu.startswith(FILEDIR):
+                    fobj['pdf'] = f"{FILEDIR}/{aid}.pdf"
+                    office_pending.append(fu)
+                files.append(fobj)
         nimg += sum(1 for p in parts if p['t'] == 'i')
+        nfile += len(files)
         t = j.get('created_at') or ''
         latest = max(latest, t)
         rows.append({'seq': seq, 'day': idx, 'name': u.get('name') or u.get('login'),
-                     'login': u.get('login'), 'time': t, 'parts': parts,
+                     'login': u.get('login'), 'time': t, 'parts': parts, 'files': files,
                      'txt': ' '.join(p['v'] for p in parts if p['t'] == 't')})
+
+office_to_pdf(office_pending)
+for r in rows:
+    for f in r.get('files', []):
+        if 'pdf' in f and not os.path.exists(f['pdf']):
+            del f['pdf']
+npdf = sum(1 for r in rows for f in r.get('files', []) if 'pdf' in f)
 
 DATA_JSON = json.dumps(rows, ensure_ascii=False)
 AV_JSON = json.dumps(av_map, ensure_ascii=False)
@@ -256,7 +331,32 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
 .cbody{padding:0 16px 15px}
 .ptext{white-space:pre-wrap;overflow-wrap:break-word;word-break:break-word;font-size:14.5px;color:var(--body);line-height:1.7}
 .ptext+.shot,.shot+.ptext,.shot+.shot{margin-top:11px}
-.shot{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:9px;background:var(--paper);min-height:30px}
+.shot{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:9px;background:var(--paper);min-height:30px;cursor:zoom-in}
+.files{display:flex;flex-wrap:wrap;gap:8px}
+.ptext+.files,.shot+.files,.files+.shot,.files+.ptext{margin-top:11px}
+.file{display:inline-flex;align-items:center;gap:8px;font-size:13px;text-decoration:none;color:var(--body);
+  border:1px solid var(--line2);border-radius:9px;padding:8px 12px;background:var(--paper);transition:.13s;max-width:100%}
+.file:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px)}
+.file .ic{font-size:15px;flex:none;line-height:1}
+.file .fn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}
+.file .sz{font-family:var(--fmono);font-size:11px;color:var(--faint);flex:none}
+.lightbox{position:fixed;inset:0;background:rgba(8,9,12,.9);display:none;align-items:center;justify-content:center;z-index:100;cursor:zoom-out;padding:24px}
+.lightbox.show{display:flex;animation:rise .2s ease}
+.lightbox img{max-width:97%;max-height:97%;object-fit:contain;border-radius:6px;box-shadow:0 20px 60px -20px rgba(0,0,0,.7)}
+.lb-close{position:absolute;top:16px;right:22px;color:#fff;font-size:32px;line-height:1;opacity:.85;background:none;border:0;cursor:pointer}
+.vw{font-family:var(--fmono);font-size:10px;letter-spacing:.04em;color:var(--accent);background:var(--accent-soft);border-radius:5px;padding:1px 6px;flex:none}
+.pv{position:fixed;inset:0;background:rgba(8,9,12,.93);display:none;flex-direction:column;z-index:110}
+.pv.show{display:flex;animation:rise .2s}
+.pv-bar{display:flex;align-items:center;gap:12px;padding:12px 16px;color:#fff;flex:none;font-size:14px}
+.pv-name{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pv-sp{margin-left:auto;display:flex;gap:9px;flex:none}
+.pv-sp a,.pv-sp button{color:#fff;background:rgba(255,255,255,.15);border:0;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;text-decoration:none;font-family:inherit}
+.pv-sp a:hover,.pv-sp button:hover{background:rgba(255,255,255,.28)}
+.pv-body{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 14px 14px}
+.pv-body iframe{width:100%;height:100%;border:0;background:#fff;border-radius:8px}
+.pv-body video{max-width:100%;max-height:100%;border-radius:8px;background:#000}
+.pv-body pre{width:100%;height:100%;overflow:auto;margin:0;padding:18px 20px;background:#fff;color:#23252d;border-radius:8px;font:13px/1.7 var(--fmono);white-space:pre-wrap;word-break:break-word}
+.pv-tip{color:#c2c7d2;font-size:12px;text-align:center;padding:9px 0 0;flex:none}
 .empty{color:var(--muted);text-align:center;padding:48px 0;font-family:var(--fmono);font-size:13px}
 .foot{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);font-family:var(--fmono);
   font-size:11px;color:var(--faint);letter-spacing:.03em;text-align:center;line-height:1.8}
@@ -310,7 +410,7 @@ h1{font-family:var(--fdisp);font-weight:600;font-size:38px;line-height:1.05;marg
     <div class="chips" id="chips"></div><p class="count" id="cCount"></p><div class="clist" id="cList"></div>
   </section>
 
-  <p class="foot">页面与 __NIMG__ 张截图均永久托管于 GitHub · GitHub Actions 约每分钟自动从 gitlink 抓取并部署<br>最新打卡 __LATEST__</p>
+  <p class="foot">页面与 __NIMG__ 张截图本地留存 · __NFILE__ 份附件可在线预览 / 下载 · 定时自动从 gitlink 抓取刷新<br>最新打卡 __LATEST__</p>
 </div>
 
 <script>
@@ -371,10 +471,14 @@ document.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>{state.day=+ch.dat
 q.oninput=e=>{state.q=e.target.value.trim();renderList();};
 document.getElementById('sort').onchange=e=>{state.sort=e.target.value;renderList();};
 function bodyHtml(parts){return parts.map(p=>p.t==='i'?`<img class="shot" loading="lazy" src="${p.v}" alt="截图" referrerpolicy="no-referrer">`:`<div class="ptext">${esc(p.v)}</div>`).join('');}
+const FIC={pdf:'📕',docx:'📄',doc:'📄',pptx:'📊',ppt:'📊',xlsx:'📈',xls:'📈',csv:'📈',mp4:'🎬',mov:'🎬',avi:'🎬',md:'📝',txt:'📃',json:'📃',log:'📃',zip:'🗜️',rar:'🗜️',html:'🌐'};
+const PV_VID={mp4:1,mov:1,webm:1,avi:1,mkv:1},PV_OFF={docx:1,doc:1,pptx:1,ppt:1,xlsx:1,xls:1},PV_TXT={txt:1,md:1,csv:1,json:1,log:1};
+const canPV=x=>!!(PV_VID[x]||PV_OFF[x]||PV_TXT[x]||x==='pdf'||x==='html');
+function filesHtml(files){if(!files||!files.length)return '';return '<div class="files">'+files.map(f=>{const pv=canPV(f.x)||f.pdf;return `<a class="file" href="${esc(f.u)}" target="_blank" rel="noopener" data-x="${esc(f.x)}" data-n="${esc(f.n)}" data-pdf="${esc(f.pdf||'')}" title="${pv?'点击预览':'点击下载'} · ${esc(f.n)}"><span class="ic">${FIC[f.x]||'📎'}</span><span class="fn">${esc(f.n)}</span><span class="sz">${esc(f.s)}</span>${pv?'<span class="vw">预览</span>':''}</a>`;}).join('')+'</div>';}
 function renderList(){let arr=DATA.filter(c=>{if(state.day&&c.day!==state.day)return false;if(state.q){const x=state.q.toLowerCase();if(!((c.name||'').toLowerCase().includes(x)||(c.login||'').toLowerCase().includes(x)||(c.txt||'').toLowerCase().includes(x)))return false;}return true;});
   const s=state.sort;arr=[...arr].sort((a,b)=>s==='time_desc'?(b.time||'').localeCompare(a.time||''):s==='time_asc'?(a.time||'').localeCompare(b.time||''):s==='name'?a.name.localeCompare(b.name,'zh'):s==='day'?a.day-b.day||a.seq-b.seq:a.seq-b.seq);
   document.getElementById('cCount').textContent=`${arr.length} / ${TOTAL} 条`;
-  document.getElementById('cList').innerHTML=arr.length?arr.map(c=>`<div class="card"><div class="chead"><span class="tag" style="background:${DI[c.day].hex}">${DI[c.day].c}</span>${av(c.login,1)}<span class="nm">${esc(c.name)}</span><span class="id">${esc(c.login)}</span><span class="tm">${esc(c.time||'')}</span></div><div class="cbody">${bodyHtml(c.parts)}</div></div>`).join(''):'<div class="empty">没有匹配的评论</div>';}
+  document.getElementById('cList').innerHTML=arr.length?arr.map(c=>`<div class="card"><div class="chead"><span class="tag" style="background:${DI[c.day].hex}">${DI[c.day].c}</span>${av(c.login,1)}<span class="nm">${esc(c.name)}</span><span class="id">${esc(c.login)}</span><span class="tm">${esc(c.time||'')}</span></div><div class="cbody">${bodyHtml(c.parts)}${filesHtml(c.files)}</div></div>`).join(''):'<div class="empty">没有匹配的评论</div>';}
 
 function switchTab(n){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===n));document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===n));window.scrollTo({top:0,behavior:'smooth'});}
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
@@ -384,6 +488,40 @@ applyTheme(localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme: da
 tb.onclick=()=>{const t=root.getAttribute('data-theme')==='dark'?'light':'dark';localStorage.setItem('theme',t);applyTheme(t);};
 document.addEventListener('keydown',e=>{const t=e.target;if((e.key==='Enter'||e.key===' ')&&t.matches&&t.matches('.wav,tr.person,.roster th[data-sort]')){e.preventDefault();t.click();}});
 renderRoster();syncChips();renderList();
+
+// —— 点击截图放大查看 ——
+(function(){
+  const lb=document.createElement('div');lb.className='lightbox';
+  lb.innerHTML='<button class="lb-close" aria-label="关闭">×</button><img alt="放大查看">';
+  document.body.appendChild(lb);
+  const lbimg=lb.querySelector('img');
+  function close(){lb.classList.remove('show');lbimg.src='';}
+  document.addEventListener('click',e=>{const s=e.target.closest&&e.target.closest('.shot');if(s){lbimg.src=s.src;lb.classList.add('show');}});
+  lb.addEventListener('click',close);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')close();});
+})();
+
+// —— 附件在线预览(视频/PDF/Office/文本,免下载)——
+(function(){
+  const pv=document.createElement('div');pv.className='pv';
+  pv.innerHTML='<div class="pv-bar"><span class="pv-name"></span><span class="pv-sp"><a class="pv-dl" target="_blank" rel="noopener">下载</a><button class="pv-x" type="button">关闭 ✕</button></span></div><div class="pv-body"></div>';
+  document.body.appendChild(pv);
+  const body=pv.querySelector('.pv-body'),nm=pv.querySelector('.pv-name'),dl=pv.querySelector('.pv-dl');
+  function close(){pv.classList.remove('show');body.innerHTML='';}
+  pv.querySelector('.pv-x').onclick=close;
+  pv.addEventListener('click',e=>{if(e.target===pv)close();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')close();});
+  function open(u,x,n,pdf){
+    nm.textContent=n;dl.href=u;body.innerHTML='';
+    if(pdf)body.innerHTML=`<iframe src="${esc(pdf)}"></iframe>`;
+    else if(PV_VID[x])body.innerHTML=`<video controls autoplay src="${esc(u)}"></video>`;
+    else if(x==='pdf'||x==='html')body.innerHTML=`<iframe src="${esc(u)}"></iframe>`;
+    else if(PV_OFF[x]){const abs=new URL(u,location.href).href;body.innerHTML=`<iframe src="https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(abs)}"></iframe><div class="pv-tip">在线预览 · 若空白请点右上角「下载」</div>`;}
+    else{body.innerHTML='<pre>加载中…</pre>';fetch(u).then(r=>r.text()).then(t=>{const p=body.querySelector('pre');if(p)p.textContent=t;}).catch(()=>{const p=body.querySelector('pre');if(p)p.textContent='无法在线加载,请点「下载」查看';});}
+    pv.classList.add('show');
+  }
+  document.addEventListener('click',e=>{const a=e.target.closest&&e.target.closest('a.file');if(a&&(canPV(a.dataset.x)||a.dataset.pdf)){e.preventDefault();open(a.getAttribute('href'),a.dataset.x,a.dataset.n,a.dataset.pdf);}});
+})();
 
 // —— 存活 + 新数据检测:每 60s 比对本页 Last-Modified,有新部署就提示刷新 ——
 (function(){
@@ -400,7 +538,7 @@ renderRoster();syncChips();renderList();
 </body>
 </html>"""
 
-html = (TEMPLATE.replace('__SRC__', SRC).replace('__LATEST__', LATEST).replace('__NIMG__', str(nimg))
+html = (TEMPLATE.replace('__SRC__', SRC).replace('__LATEST__', LATEST).replace('__NIMG__', str(nimg)).replace('__NFILE__', str(nfile))
         .replace('__AV__', AV_JSON).replace('__DATA__', DATA_JSON))
 open('index.html', 'w', encoding='utf-8').write(html)
-print(f"built | comments={len(rows)} images={nimg} latest={LATEST} bytes={len(html)}")
+print(f"built | comments={len(rows)} images={nimg} files={nfile} office-pdf={npdf} latest={LATEST} bytes={len(html)}")
