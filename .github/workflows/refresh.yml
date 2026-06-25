@@ -24,16 +24,33 @@ jobs:
           python-version: "3.12"
       - name: Install deps
         run: python -m pip install --quiet pillow
-      - name: Live loop — rebuild every ~60s, commit only on change
+      - name: Live loop — rebuild ~60s; push GitHub + 镜像/部署 GitLink
+        env:
+          GLT: ${{ secrets.GITLINK_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          GLREPO="https://p64978352:${GLT}@gitlink.org.cn/p64978352/p64978352.gitlink.net.git"
+          # 有 GitLink secret 才克隆其建站仓库(没有则只更新 GitHub)
+          if [ -n "$GLT" ]; then rm -rf /tmp/gl; git clone --depth 1 "$GLREPO" /tmp/gl 2>/dev/null || true; fi
           for i in $(seq 1 40); do
             python build.py || true
             if [ -n "$(git status --porcelain)" ]; then
               git add -A
               git commit -m "auto refresh: $(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S')" || true
               git push origin HEAD:main || { git pull --rebase --autostash -X ours origin main && git push origin HEAD:main; } || true
+              # —— 同步到 GitLink 建站仓库 static/ 并触发自动部署 ——
+              if [ -n "$GLT" ] && [ -d /tmp/gl/.git ]; then
+                rm -rf /tmp/gl/static/index.html /tmp/gl/static/images /tmp/gl/static/avatars /tmp/gl/static/files
+                mkdir -p /tmp/gl/static
+                cp index.html /tmp/gl/static/ 2>/dev/null || true
+                cp -r images avatars files /tmp/gl/static/ 2>/dev/null || true
+                git -C /tmp/gl add -A
+                if git -C /tmp/gl commit -m "sync from github" 2>/dev/null; then
+                  git -C /tmp/gl push origin HEAD:master 2>/dev/null || { git -C /tmp/gl pull --rebase --autostash -X ours origin master && git -C /tmp/gl push origin HEAD:master; } || true
+                  curl -s -X POST "https://gitlink.org.cn/api/site_pages/softbot_build" -H "Content-Type: application/json" -d '{"ref":"refs/heads/master","repository":{"name":"p64978352.gitlink.net","owner":{"login":"p64978352"}}}' >/dev/null 2>&1 || true
+                fi
+              fi
             fi
             sleep 60
           done
